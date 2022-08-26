@@ -38,18 +38,51 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			return
 		}
 		var stories []item
-		for _, id := range ids {
-			hnItem, err := client.GetItem(id)
-			if err != nil {
-				continue
+		launchCount := 0
+		bucket := make([]item, 5)
+		c := make(chan hn.Item, 5)
+		storiesFull := false
+		for order, id := range ids {
+			if storiesFull {
+				break
 			}
-			item := parseHNItem(hnItem)
-			if isStoryLink(item) {
-				stories = append(stories, item)
-				if len(stories) >= numStories {
-					break
+
+			if launchCount < 5 {
+				go client.GetItem(id, order, c)
+				launchCount++
+			} else {
+				for launchCount > 0 {
+					hnItem := <-c
+					item := parseHNItem(hnItem)
+					bucket[item.Order%5] = item
+					launchCount--
+				}
+				for _, item := range bucket {
+					if item.Error() != nil {
+						fmt.Printf("%+v", item.Error())
+						continue
+					}
+
+					if isStoryLink(item) {
+						stories = append(stories, item)
+						if len(stories) >= numStories {
+							storiesFull = true
+							break
+						}
+					}
 				}
 			}
+			// hnItem, err := client.GetItem(id)
+			// if err != nil {
+			// 	continue
+			// }
+			// item := parseHNItem(hnItem)
+			// if isStoryLink(item) {
+			// 	stories = append(stories, item)
+			// 	if len(stories) >= numStories {
+			// 		break
+			// 	}
+			// }
 		}
 		data := templateData{
 			Stories: stories,

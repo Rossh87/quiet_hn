@@ -48,20 +48,31 @@ func (c *Client) TopItems() ([]int, error) {
 }
 
 // GetItem will return the Item defined by the provided ID.
-func (c *Client) GetItem(id int) (Item, error) {
+func (c *Client) GetItem(id int, order int, ch chan<- Item) {
 	c.defaultify()
 	var item Item
+	item.Order = order
 	resp, err := http.Get(fmt.Sprintf("%s/item/%d.json", c.apiBase, id))
+
 	if err != nil {
-		return item, err
+		// return item, err
+		item.err = err
+		ch <- item
+		return
 	}
+
 	defer resp.Body.Close()
 	dec := json.NewDecoder(resp.Body)
 	err = dec.Decode(&item)
+
 	if err != nil {
-		return item, err
+		// return item, err
+		item.err = err
+		ch <- item
+		return
 	}
-	return item, nil
+
+	ch <- item
 }
 
 // Item represents a single item returned by the HN API. This can have a type
@@ -81,6 +92,12 @@ type Item struct {
 	Type        string `json:"type"`
 
 	// Only one of these should exist
-	Text string `json:"text"`
-	URL  string `json:"url"`
+	Text  string `json:"text"`
+	URL   string `json:"url"`
+	Order int
+	err   error
+}
+
+func (i Item) Error() error {
+	return i.err
 }
