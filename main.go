@@ -71,6 +71,9 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 						}
 					}
 				}
+				// don't miss the id from the range loop on the 'emptying' iteration!
+				go client.GetItem(id, order, c)
+				launchCount++
 			}
 			// hnItem, err := client.GetItem(id)
 			// if err != nil {

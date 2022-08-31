@@ -55,7 +55,6 @@ func (c *Client) GetItem(id int, order int, ch chan<- Item) {
 	resp, err := http.Get(fmt.Sprintf("%s/item/%d.json", c.apiBase, id))
 
 	if err != nil {
-		// return item, err
 		item.err = err
 		ch <- item
 		return
@@ -66,7 +65,6 @@ func (c *Client) GetItem(id int, order int, ch chan<- Item) {
 	err = dec.Decode(&item)
 
 	if err != nil {
-		// return item, err
 		item.err = err
 		ch <- item
 		return
