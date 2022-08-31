@@ -1,4 +1,4 @@
-// Package hn implements a really basic Hacker News client
+// Package hn implements a really basic Hacker News clientService
 package hn
 
 import (
@@ -11,15 +11,15 @@ const (
 	apiBase = "https://hacker-news.firebaseio.com/v0"
 )
 
-// Client is an API client used to interact with the Hacker News API
-type Client struct {
+// clientService is an API clientService used to interact with the Hacker News API
+type clientService struct {
 	// unexported fields...
 	apiBase string
 }
 
-// Making the Client zero value useful without forcing users to do something
-// like `NewClient()`
-func (c *Client) defaultify() {
+// Making the clientService zero value useful without forcing users to do something
+// like `NewClientService()`
+func (c *clientService) defaultify() {
 	if c.apiBase == "" {
 		c.apiBase = apiBase
 	}
@@ -31,7 +31,7 @@ func (c *Client) defaultify() {
 //
 // TopItmes does not filter out job listings or anything else, as the type of
 // each item is unknown without further API calls.
-func (c *Client) TopItems() ([]int, error) {
+func (c *clientService) topItems() ([]int, error) {
 	c.defaultify()
 	resp, err := http.Get(fmt.Sprintf("%s/topstories.json", c.apiBase))
 	if err != nil {
@@ -47,17 +47,13 @@ func (c *Client) TopItems() ([]int, error) {
 	return ids, nil
 }
 
-// GetItem will return the Item defined by the provided ID.
-func (c *Client) GetItem(id int, order int, ch chan<- Item) {
+func (c *clientService) getItem(id int) (Item, error) {
 	c.defaultify()
 	var item Item
-	item.Order = order
 	resp, err := http.Get(fmt.Sprintf("%s/item/%d.json", c.apiBase, id))
 
 	if err != nil {
-		item.err = err
-		ch <- item
-		return
+		return item, err
 	}
 
 	defer resp.Body.Close()
@@ -65,12 +61,10 @@ func (c *Client) GetItem(id int, order int, ch chan<- Item) {
 	err = dec.Decode(&item)
 
 	if err != nil {
-		item.err = err
-		ch <- item
-		return
+		return item, err
 	}
 
-	ch <- item
+	return item, nil
 }
 
 // Item represents a single item returned by the HN API. This can have a type
@@ -90,12 +84,106 @@ type Item struct {
 	Type        string `json:"type"`
 
 	// Only one of these should exist
-	Text  string `json:"text"`
-	URL   string `json:"url"`
-	Order int
-	err   error
+	Text     string `json:"text"`
+	URL      string `json:"url"`
+	Position int
+	err      error
+}
+
+func (i Item) IsStoryLink() bool {
+	return i.Type == "story" && i.URL != ""
 }
 
 func (i Item) Error() error {
 	return i.err
+}
+
+type Client struct {
+	storyCount    int
+	maxConcurrent int
+	service       clientService
+	initialized   bool
+}
+
+func (c *Client) getItem(storyId int, position int, out chan<- Item) {
+	item, err := c.service.getItem(storyId)
+
+	item.Position = position
+
+	if err != nil {
+		item.err = err
+	}
+
+	out <- item
+}
+
+func (c *Client) defaultify() {
+	if !c.initialized {
+		c.maxConcurrent = 10
+		c.storyCount = 30
+		c.service = clientService{}
+		c.initialized = true
+	}
+}
+
+func (c *Client) Fill(storyList *[]Item) error {
+	c.defaultify()
+
+	storyIds, err := c.service.topItems()
+
+	if err != nil {
+		return err
+	}
+
+	currRequests := 0
+
+	bucket := make([]Item, c.maxConcurrent)
+
+	ch := make(chan Item, c.maxConcurrent)
+
+	full := false
+
+	for storyNumber, id := range storyIds {
+		if full {
+			break
+		}
+
+		if currRequests < c.maxConcurrent {
+			go c.getItem(id, storyNumber, ch)
+			currRequests++
+			continue
+		}
+
+		for currRequests > 0 {
+			storyItem := <-ch
+
+			bucket[storyItem.Position%c.maxConcurrent] = storyItem
+
+			currRequests--
+		}
+
+		for _, storyItem := range bucket {
+			// if story item is errored out, just skip it
+			if storyItem.Error() != nil {
+				fmt.Printf("%+v", storyItem.Error())
+				continue
+			}
+
+			if storyItem.IsStoryLink() {
+				*storyList = append(*storyList, storyItem)
+			}
+
+			if len(*storyList) >= c.storyCount {
+				full = true
+				break
+			}
+		}
+
+		// now that bucket is empty, we still need to request the story that
+		// corresponds to the current id in the outer range loop
+		go c.getItem(id, storyNumber, ch)
+		currRequests++
+	}
+
+	return nil
 }

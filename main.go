@@ -32,75 +32,31 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		var client hn.Client
-		ids, err := client.TopItems()
+		stories := &[]hn.Item{}
+		err := client.Fill(stories)
+
 		if err != nil {
-			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
-			return
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		var stories []item
-		launchCount := 0
-		bucket := make([]item, 5)
-		c := make(chan hn.Item, 5)
-		storiesFull := false
-		for order, id := range ids {
-			if storiesFull {
-				break
-			}
 
-			if launchCount < 5 {
-				go client.GetItem(id, order, c)
-				launchCount++
-			} else {
-				for launchCount > 0 {
-					hnItem := <-c
-					item := parseHNItem(hnItem)
-					bucket[item.Order%5] = item
-					launchCount--
-				}
-				for _, item := range bucket {
-					if item.Error() != nil {
-						fmt.Printf("%+v", item.Error())
-						continue
-					}
+		tplStories := []item{}
 
-					if isStoryLink(item) {
-						stories = append(stories, item)
-						if len(stories) >= numStories {
-							storiesFull = true
-							break
-						}
-					}
-				}
-				// don't miss the id from the range loop on the 'emptying' iteration!
-				go client.GetItem(id, order, c)
-				launchCount++
-			}
-			// hnItem, err := client.GetItem(id)
-			// if err != nil {
-			// 	continue
-			// }
-			// item := parseHNItem(hnItem)
-			// if isStoryLink(item) {
-			// 	stories = append(stories, item)
-			// 	if len(stories) >= numStories {
-			// 		break
-			// 	}
-			// }
+		for _, s := range *stories {
+			tplStories = append(tplStories, parseHNItem(s))
 		}
+
 		data := templateData{
-			Stories: stories,
-			Time:    time.Now().Sub(start),
+			Stories: tplStories,
+			Time:    time.Since(start),
 		}
+
 		err = tpl.Execute(w, data)
+
 		if err != nil {
 			http.Error(w, "Failed to process the template", http.StatusInternalServerError)
 			return
 		}
 	})
-}
-
-func isStoryLink(item item) bool {
-	return item.Type == "story" && item.URL != ""
 }
 
 func parseHNItem(hnItem hn.Item) item {
