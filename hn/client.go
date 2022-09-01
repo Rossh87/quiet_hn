@@ -13,8 +13,8 @@ const (
 
 // clientService is an API clientService used to interact with the Hacker News API
 type clientService struct {
-	// unexported fields...
 	apiBase string
+	cache   storyCache
 }
 
 // Making the clientService zero value useful without forcing users to do something
@@ -22,6 +22,7 @@ type clientService struct {
 func (c *clientService) defaultify() {
 	if c.apiBase == "" {
 		c.apiBase = apiBase
+		c.cache = cache
 	}
 }
 
@@ -50,6 +51,15 @@ func (c *clientService) topItems() ([]int, error) {
 func (c *clientService) getItem(id int) (Item, error) {
 	c.defaultify()
 	var item Item
+
+	cached := c.cache.Get(id)
+
+	if cached != nil {
+		item = *cached
+		item.FromCache = true
+		return item, nil
+	}
+
 	resp, err := http.Get(fmt.Sprintf("%s/item/%d.json", c.apiBase, id))
 
 	if err != nil {
@@ -63,6 +73,8 @@ func (c *clientService) getItem(id int) (Item, error) {
 	if err != nil {
 		return item, err
 	}
+
+	c.cache.Add(id, &item)
 
 	return item, nil
 }
@@ -83,11 +95,12 @@ type Item struct {
 	Title       string `json:"title"`
 	Type        string `json:"type"`
 
-	// Only one of these should exist
-	Text     string `json:"text"`
-	URL      string `json:"url"`
-	Position int
-	err      error
+	// Only one of text and URL should exist
+	Text      string `json:"text"`
+	URL       string `json:"url"`
+	Position  int
+	err       error
+	FromCache bool
 }
 
 func (i Item) IsStoryLink() bool {
