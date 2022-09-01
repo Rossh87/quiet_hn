@@ -54,11 +54,12 @@ var cache = storyCache{
 }
 
 type idCache struct {
-	ttl       time.Duration
-	expBuffer time.Duration
-	exp       time.Time
-	mutex     sync.Mutex
-	ids       []int
+	refreshing bool
+	ttl        time.Duration
+	expBuffer  time.Duration
+	exp        time.Time
+	mutex      sync.Mutex
+	ids        []int
 }
 
 type idCacheResult struct {
@@ -79,8 +80,11 @@ func (c *idCache) Get() idCacheResult {
 
 	result.ids = c.ids
 
-	if time.Until(c.exp) <= c.expBuffer {
+	if time.Until(c.exp) <= c.expBuffer && !c.refreshing {
 		result.shouldRefresh = true
+		// prevent subsequent Get requests that occur in the refresh window
+		// from triggering a refresh before the first refresh can complete.
+		c.refreshing = true
 	}
 
 	return result
@@ -91,6 +95,7 @@ func (c *idCache) Add(ids []int) {
 	defer c.mutex.Unlock()
 	c.exp = time.Now().Add(c.ttl)
 	c.ids = ids
+	c.refreshing = false
 }
 
 var itemIdCache = idCache{

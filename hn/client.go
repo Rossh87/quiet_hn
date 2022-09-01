@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 const (
@@ -98,7 +99,9 @@ func (c *clientService) getItem(id int) (Item, error) {
 
 func (c *clientService) refreshIds() {
 	c.defaultify()
-
+	start := time.Now()
+	fmt.Println("beginning refresh...")
+	defer fmt.Printf("\nrefresh completed in %d\n", time.Since(start))
 	resp, err := http.Get(fmt.Sprintf("%s/topstories.json", c.apiBase))
 
 	if err != nil {
