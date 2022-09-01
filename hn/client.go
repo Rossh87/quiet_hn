@@ -14,7 +14,9 @@ const (
 // clientService is an API clientService used to interact with the Hacker News API
 type clientService struct {
 	apiBase string
-	cache   storyCache
+	// cache is a singleton, need a pointer to avoid implicit copying,
+	// resulting in race conditions due to copied mutex lock.
+	cache *storyCache
 }
 
 // Making the clientService zero value useful without forcing users to do something
@@ -22,7 +24,7 @@ type clientService struct {
 func (c *clientService) defaultify() {
 	if c.apiBase == "" {
 		c.apiBase = apiBase
-		c.cache = cache
+		c.cache = &cache
 	}
 }
 
