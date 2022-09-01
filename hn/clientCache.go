@@ -3,6 +3,7 @@ package hn
 import (
 	"container/list"
 	"sync"
+	"time"
 )
 
 type storyCache struct {
@@ -48,6 +49,51 @@ func (sc *storyCache) Add(id int, i *Item) {
 }
 
 var cache = storyCache{
-	capacity: 50,
+	capacity: 100,
 	idx:      make(map[int]*list.Element),
+}
+
+type idCache struct {
+	ttl       time.Duration
+	expBuffer time.Duration
+	exp       time.Time
+	mutex     sync.Mutex
+	ids       []int
+}
+
+type idCacheResult struct {
+	shouldRefresh bool
+	ids           []int
+}
+
+func (c *idCache) Get() idCacheResult {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	var result idCacheResult
+
+	if time.Until(c.exp) <= 0 {
+		c.ids = nil
+		return result
+	}
+
+	result.ids = c.ids
+
+	if time.Until(c.exp) <= c.expBuffer {
+		result.shouldRefresh = true
+	}
+
+	return result
+}
+
+func (c *idCache) Add(ids []int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.exp = time.Now().Add(c.ttl)
+	c.ids = ids
+}
+
+var itemIdCache = idCache{
+	ttl:       10 * time.Second,
+	expBuffer: 5 * time.Second,
 }

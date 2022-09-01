@@ -29,9 +29,10 @@ func main() {
 }
 
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
+	var client hn.Client
+	client.PopulateCache()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		var client hn.Client
 		stories := &[]hn.Item{}
 		err := client.Fill(stories)
 

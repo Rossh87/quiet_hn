@@ -16,7 +16,8 @@ type clientService struct {
 	apiBase string
 	// cache is a singleton, need a pointer to avoid implicit copying,
 	// resulting in race conditions due to copied mutex lock.
-	cache *storyCache
+	cache   *storyCache
+	idCache *idCache
 }
 
 // Making the clientService zero value useful without forcing users to do something
@@ -25,6 +26,7 @@ func (c *clientService) defaultify() {
 	if c.apiBase == "" {
 		c.apiBase = apiBase
 		c.cache = &cache
+		c.idCache = &itemIdCache
 	}
 }
 
@@ -36,6 +38,17 @@ func (c *clientService) defaultify() {
 // each item is unknown without further API calls.
 func (c *clientService) topItems() ([]int, error) {
 	c.defaultify()
+
+	cacheResult := c.idCache.Get()
+
+	if cacheResult.shouldRefresh {
+		go c.refreshIds()
+	}
+
+	if cacheResult.ids != nil {
+		return cacheResult.ids, nil
+	}
+
 	resp, err := http.Get(fmt.Sprintf("%s/topstories.json", c.apiBase))
 	if err != nil {
 		return nil, err
@@ -47,6 +60,8 @@ func (c *clientService) topItems() ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	c.idCache.Add(ids)
 	return ids, nil
 }
 
@@ -79,6 +94,34 @@ func (c *clientService) getItem(id int) (Item, error) {
 	c.cache.Add(id, &item)
 
 	return item, nil
+}
+
+func (c *clientService) refreshIds() {
+	c.defaultify()
+
+	resp, err := http.Get(fmt.Sprintf("%s/topstories.json", c.apiBase))
+
+	if err != nil {
+		fmt.Println("ID cache refresh failed:")
+		fmt.Printf("\n%+v", err)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	var ids []int
+
+	dec := json.NewDecoder(resp.Body)
+
+	err = dec.Decode(&ids)
+
+	if err != nil {
+		fmt.Println("ID cache refresh failed:")
+		fmt.Printf("\n%+v", err)
+		return
+	}
+
+	c.idCache.Add(ids)
 }
 
 // Item represents a single item returned by the HN API. This can have a type
@@ -201,4 +244,13 @@ func (c *Client) Fill(storyList *[]Item) error {
 	}
 
 	return nil
+}
+
+func (c *Client) PopulateCache() {
+	c.defaultify()
+
+	// run synchronously to avoid pointless second request
+	// if route handler is hit before initial cache population
+	// is complete.
+	c.service.refreshIds()
 }
